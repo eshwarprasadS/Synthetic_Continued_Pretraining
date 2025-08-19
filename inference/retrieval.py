@@ -472,16 +472,8 @@ class LangChainRetriever:
         # Prepare query-document pairs for batch processing
         query_doc_pairs = [[query, doc] for doc in documents]
         
-        try:
-            # Try batch processing first (more efficient)
-            scores = cross_encoder_model.predict(query_doc_pairs)
-        except Exception as e:
-            logging.warning(f"Batch processing failed for Qwen reranker: {e}. Falling back to individual processing.")
-            # Fallback to individual processing if batch fails
-            scores = []
-            for doc in documents:
-                score = cross_encoder_model.predict([[query, doc]])[0]
-                scores.append(score)
+        # Get relevance scores from the cross-encoder (batch processing)
+        scores = cross_encoder_model.predict(query_doc_pairs)
         
         # Convert to list of tuples (text, relevance score)
         results = [(doc, float(score)) for doc, score in zip(documents, scores)]
