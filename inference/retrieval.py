@@ -361,26 +361,27 @@ class LangChainRetriever:
         else:
             raise NotImplementedError(f"Unknown rerank model path: {self.rerank_model_path}")
         
-        # Enable multi-GPU inference for reranker if available
+        # Check multi-GPU availability for reranker
         if self.n_gpus > 1 and torch.cuda.device_count() >= self.n_gpus:
-            logging.info(f"Enabling DataParallel for reranker on {self.n_gpus} GPUs")
-            # Get the underlying PyTorch model from sentence-transformers
-            if hasattr(self.rerank_model, 'model'):
-                # Store original device before DataParallel
-                original_device = self.rerank_model.model.device
-                
-                # Apply DataParallel
-                self.rerank_model.model = torch.nn.DataParallel(
-                    self.rerank_model.model, 
-                    device_ids=list(range(self.n_gpus))
-                )
-                
-                # Fix device attribute access for sentence-transformers compatibility
-                self.rerank_model.model.device = original_device
-            else:
-                logging.warning("Could not enable DataParallel: model structure not recognized")
+            logging.info(f"Multi-GPU reranking available with {self.n_gpus} GPUs")
+            self.use_multi_gpu_reranking = True
+            # Create multiple model instances on different GPUs
+            self.rerank_models = []
+            for gpu_id in range(self.n_gpus):
+                model_copy = CrossEncoder(self.rerank_model_path, device=f'cuda:{gpu_id}')
+                if self.rerank_model_path == 'Qwen/Qwen3-Reranker-8B':
+                    if model_copy.tokenizer.pad_token is None:
+                        model_copy.tokenizer.pad_token = '<|endoftext|>'
+                        model_copy.tokenizer.pad_token_id = 151643
+                self.rerank_models.append(model_copy)
+            # Override wrapper function for multi-GPU
+            if self.rerank_model_path == 'BAAI/bge-reranker-v2-m3':
+                self.rerank_wrapper_fn = self.rerank_with_bge_cross_encoder_multi_gpu
+            elif self.rerank_model_path == 'Qwen/Qwen3-Reranker-8B':
+                self.rerank_wrapper_fn = self.rerank_with_qwen_cross_encoder_multi_gpu
         else:
             logging.info(f"Using single GPU for reranker (n_gpus={self.n_gpus}, available={torch.cuda.device_count()})")
+            self.use_multi_gpu_reranking = False
 
         # Actually perform doc embedding (or retrieves from the cache, if available) and build the FAISS vector store
         logging.info("Starting document embedding (or getting document embeddings from cache) and indexing.")
@@ -535,6 +536,114 @@ class LangChainRetriever:
         # Convert to list of tuples (text, relevance score)
         results = [(doc, float(score)) for doc, score in zip(documents, all_scores)]
         
+        return results
+    
+    def rerank_with_bge_cross_encoder_multi_gpu(
+            self,
+            query,
+            documents,
+            model,
+            batch_size=128
+    ):
+        """Rerank documents using BGE cross-encoder with multiple GPUs."""
+        import concurrent.futures
+        import threading
+        
+        # Split documents across GPUs
+        n_docs_per_gpu = len(documents) // self.n_gpus
+        gpu_batches = []
+        
+        for gpu_id in range(self.n_gpus):
+            start_idx = gpu_id * n_docs_per_gpu
+            if gpu_id == self.n_gpus - 1:  # Last GPU gets remaining docs
+                end_idx = len(documents)
+            else:
+                end_idx = (gpu_id + 1) * n_docs_per_gpu
+            
+            gpu_batches.append((gpu_id, documents[start_idx:end_idx]))
+        
+        def process_gpu_batch(gpu_data):
+            gpu_id, gpu_docs = gpu_data
+            if not gpu_docs:
+                return []
+            
+            model_for_gpu = self.rerank_models[gpu_id]
+            all_scores = []
+            
+            # Process this GPU's documents in batches
+            for i in range(0, len(gpu_docs), batch_size):
+                batch_docs = gpu_docs[i:i + batch_size]
+                query_doc_pairs = [[query, doc] for doc in batch_docs]
+                batch_scores = model_for_gpu.predict(query_doc_pairs)
+                all_scores.extend(batch_scores)
+            
+            return all_scores
+        
+        # Process all GPU batches in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.n_gpus) as executor:
+            gpu_results = list(executor.map(process_gpu_batch, gpu_batches))
+        
+        # Combine results from all GPUs
+        all_scores = []
+        for gpu_scores in gpu_results:
+            all_scores.extend(gpu_scores)
+        
+        # Convert to list of tuples (text, relevance score)
+        results = [(doc, float(score)) for doc, score in zip(documents, all_scores)]
+        return results
+    
+    def rerank_with_qwen_cross_encoder_multi_gpu(
+            self,
+            query,
+            documents,
+            model,
+            batch_size=128
+    ):
+        """Rerank documents using Qwen cross-encoder with multiple GPUs."""
+        import concurrent.futures
+        import threading
+        
+        # Split documents across GPUs
+        n_docs_per_gpu = len(documents) // self.n_gpus
+        gpu_batches = []
+        
+        for gpu_id in range(self.n_gpus):
+            start_idx = gpu_id * n_docs_per_gpu
+            if gpu_id == self.n_gpus - 1:  # Last GPU gets remaining docs
+                end_idx = len(documents)
+            else:
+                end_idx = (gpu_id + 1) * n_docs_per_gpu
+            
+            gpu_batches.append((gpu_id, documents[start_idx:end_idx]))
+        
+        def process_gpu_batch(gpu_data):
+            gpu_id, gpu_docs = gpu_data
+            if not gpu_docs:
+                return []
+            
+            model_for_gpu = self.rerank_models[gpu_id]
+            all_scores = []
+            
+            # Process this GPU's documents in batches
+            for i in range(0, len(gpu_docs), batch_size):
+                batch_docs = gpu_docs[i:i + batch_size]
+                query_doc_pairs = [[query, doc] for doc in batch_docs]
+                batch_scores = model_for_gpu.predict(query_doc_pairs)
+                all_scores.extend(batch_scores)
+            
+            return all_scores
+        
+        # Process all GPU batches in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.n_gpus) as executor:
+            gpu_results = list(executor.map(process_gpu_batch, gpu_batches))
+        
+        # Combine results from all GPUs
+        all_scores = []
+        for gpu_scores in gpu_results:
+            all_scores.extend(gpu_scores)
+        
+        # Convert to list of tuples (text, relevance score)
+        results = [(doc, float(score)) for doc, score in zip(documents, all_scores)]
         return results
 
     def rerank_chunks_for_all_queries(
