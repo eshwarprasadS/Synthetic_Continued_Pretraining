@@ -684,13 +684,23 @@ class LangChainRetriever:
                 retrieved_chunk_strs = [retrieved_chunks[j][0] for j in range(len(retrieved_chunks))]
                 logging.info(f"Reranking query {i+1}/{len(query_strs)}: {len(retrieved_chunk_strs)} documents")
                 
-                rerank_results = self.rerank_wrapper_fn(
-                    self.rerank_model,
-                    query=query_str,
-                    documents=retrieved_chunk_strs,
-                    model=rerank_model_path,
-                    batch_size=rerank_batch_size
-                )
+                if self.use_multi_gpu_reranking:
+                    # Multi-GPU functions are instance methods
+                    rerank_results = self.rerank_wrapper_fn(
+                        query=query_str,
+                        documents=retrieved_chunk_strs,
+                        model=rerank_model_path,
+                        batch_size=rerank_batch_size
+                    )
+                else:
+                    # Single-GPU functions are static methods  
+                    rerank_results = self.rerank_wrapper_fn(
+                        self.rerank_model,
+                        query=query_str,
+                        documents=retrieved_chunk_strs,
+                        model=rerank_model_path,
+                        batch_size=rerank_batch_size
+                    )
                 all_reranking_results.append(rerank_results)
                 rerank_cached_results[query_str] = rerank_results
                 should_overwrite_cache = True
