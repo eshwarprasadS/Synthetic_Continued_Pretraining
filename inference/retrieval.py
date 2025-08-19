@@ -465,11 +465,12 @@ class LangChainRetriever:
             model
     ):
         """Rerank documents using Qwen cross-encoder model."""
-        # Prepare query-document pairs for the cross-encoder
-        query_doc_pairs = [[query, doc] for doc in documents]
-        
-        # Get relevance scores from the cross-encoder
-        scores = cross_encoder_model.predict(query_doc_pairs)
+        # Process documents one by one to avoid batch padding issues
+        scores = []
+        for doc in documents:
+            # Process single query-document pair
+            score = cross_encoder_model.predict([[query, doc]])[0]
+            scores.append(score)
         
         # Convert to list of tuples (text, relevance score)
         results = [(doc, float(score)) for doc, score in zip(documents, scores)]
