@@ -21,6 +21,7 @@ class EvalConfigs:
     model_path: str = field(default='meta-llama/Meta-Llama-3-8B')
     model_name: Optional[str] = None
     eval_temperature: float = field(default=0.1)
+    n_gpus: int = field(default=8, metadata={'help': 'Number of GPUs for tensor parallelism'})
 
     # Retrieval args
     embedding_model_path: Optional[str] = field(default='text-embedding-3-large')
@@ -77,6 +78,7 @@ def _write_outputs(
 
 def eval_quality_qa(model_path: str,
               model_name: str,
+              n_gpus: int,
               **kwargs):
     task = QuALITY('all')
     savename = f'out/qualityqa-{model_name}.json'
@@ -93,6 +95,7 @@ def eval_quality_qa(model_path: str,
             add_document_context=True,
             add_thought_process=True,
             sep_after_question='\n'),
+            n_gpus=n_gpus,
     )
     _write_outputs(task=task, savename=savename, outputs=outputs)
 
@@ -110,6 +113,7 @@ def eval_quality_qa_with_rag(
     rerank_top_k: int,
     retrieved_chunk_order: str,
     eval_temperature: float,
+    n_gpus: int,
     **kwargs
 ):
     savename = f'out/retrieval/qualityqa-rag-{model_name}/'
@@ -183,7 +187,8 @@ def eval_quality_qa_with_rag(
         prompts=prompts,
         model=model,
         max_length=300,  # of generation
-        temperature=eval_temperature
+        temperature=eval_temperature,
+        n_gpus=n_gpus
     )
 
     # Means we are in the master process if distributed evaluation is enabled
