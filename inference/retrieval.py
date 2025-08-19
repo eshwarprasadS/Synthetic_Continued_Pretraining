@@ -366,10 +366,17 @@ class LangChainRetriever:
             logging.info(f"Enabling DataParallel for reranker on {self.n_gpus} GPUs")
             # Get the underlying PyTorch model from sentence-transformers
             if hasattr(self.rerank_model, 'model'):
+                # Store original device before DataParallel
+                original_device = self.rerank_model.model.device
+                
+                # Apply DataParallel
                 self.rerank_model.model = torch.nn.DataParallel(
                     self.rerank_model.model, 
                     device_ids=list(range(self.n_gpus))
                 )
+                
+                # Fix device attribute access for sentence-transformers compatibility
+                self.rerank_model.model.device = original_device
             else:
                 logging.warning("Could not enable DataParallel: model structure not recognized")
         else:
