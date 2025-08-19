@@ -517,7 +517,8 @@ class LangChainRetriever:
             self,
             chunks_for_all_queries: List[List[Tuple[str, float]]],
             rerank_model_path: str,
-            retrieval_max_k: int
+            retrieval_max_k: int,
+            rerank_batch_size: int = 128
     ) -> List[List[Tuple[str, float]]]:
         logging.info(f"Starting reranking with {rerank_model_path}.")
 
