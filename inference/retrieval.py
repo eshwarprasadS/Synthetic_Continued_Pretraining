@@ -350,7 +350,11 @@ class LangChainRetriever:
             if self.rerank_model.tokenizer.pad_token is None:
                 self.rerank_model.tokenizer.pad_token = '<|endoftext|>'
                 self.rerank_model.tokenizer.pad_token_id = 151643
-            self.rerank_wrapper_fn = self.rerank_with_qwen_cross_encoder
+            self.rerank_wrapper_fn = self.rerank_with_qwen_cross_encoder_batched
+        elif self.rerank_model_path == 'BAAI/bge-reranker-v2-m3':
+            logging.info("Setting up BGE cross-encoder reranker.")
+            self.rerank_model = CrossEncoder(self.rerank_model_path)
+            self.rerank_wrapper_fn = self.rerank_with_bge_cross_encoder
         else:
             raise NotImplementedError(f"Unknown rerank model path: {self.rerank_model_path}")
 
@@ -458,19 +462,45 @@ class LangChainRetriever:
         ))
 
     @staticmethod
-    def rerank_with_qwen_cross_encoder(
+    def rerank_with_qwen_cross_encoder_batched(
             cross_encoder_model,
             query,
             documents,
-            model
+            _model
     ):
-        """Rerank documents using Qwen cross-encoder model."""
-        # Process documents one by one to avoid batch padding issues
-        scores = []
-        for doc in documents:
-            # Process single query-document pair
-            score = cross_encoder_model.predict([[query, doc]])[0]
-            scores.append(score)
+        """Rerank documents using Qwen cross-encoder model with efficient batching."""
+        # Prepare query-document pairs for batch processing
+        query_doc_pairs = [[query, doc] for doc in documents]
+        
+        try:
+            # Try batch processing first (more efficient)
+            scores = cross_encoder_model.predict(query_doc_pairs)
+        except Exception as e:
+            logging.warning(f"Batch processing failed for Qwen reranker: {e}. Falling back to individual processing.")
+            # Fallback to individual processing if batch fails
+            scores = []
+            for doc in documents:
+                score = cross_encoder_model.predict([[query, doc]])[0]
+                scores.append(score)
+        
+        # Convert to list of tuples (text, relevance score)
+        results = [(doc, float(score)) for doc, score in zip(documents, scores)]
+        
+        return results
+    
+    @staticmethod
+    def rerank_with_bge_cross_encoder(
+            cross_encoder_model,
+            query,
+            documents,
+            _model
+    ):
+        """Rerank documents using BGE cross-encoder model."""
+        # Prepare query-document pairs for the cross-encoder
+        query_doc_pairs = [[query, doc] for doc in documents]
+        
+        # Get relevance scores from the cross-encoder (BGE handles batching well)
+        scores = cross_encoder_model.predict(query_doc_pairs)
         
         # Convert to list of tuples (text, relevance score)
         results = [(doc, float(score)) for doc, score in zip(documents, scores)]
