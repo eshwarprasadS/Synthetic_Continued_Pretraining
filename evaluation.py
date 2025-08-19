@@ -149,6 +149,7 @@ def eval_quality_qa_with_rag(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         rerank_model_path=rerank_model_path,
+        n_gpus=n_gpus,
     )
     logging.info(f"Setup retriever index.")
 

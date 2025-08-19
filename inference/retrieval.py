@@ -3,6 +3,7 @@ import os
 from typing import List, Iterable, Optional, Union, cast, Tuple, Dict
 
 import pandas as pd
+import torch
 from sentence_transformers import CrossEncoder
 from langchain.embeddings.cache import (
     CacheBackedEmbeddings, Embeddings, ByteStore, EncoderBackedStore, batch_iterate,
@@ -311,7 +312,8 @@ class LangChainRetriever:
         text_split_strategy: str,
         chunk_size: int,
         chunk_overlap: int,
-        rerank_model_path: str
+        rerank_model_path: str,
+        n_gpus: int = 1
     ):
         self.task = task
         self.task_name = 'quality'
@@ -320,6 +322,7 @@ class LangChainRetriever:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.rerank_model_path = rerank_model_path
+        self.n_gpus = n_gpus
 
         set_openai_key()
 
@@ -357,6 +360,20 @@ class LangChainRetriever:
             self.rerank_wrapper_fn = self.rerank_with_bge_cross_encoder
         else:
             raise NotImplementedError(f"Unknown rerank model path: {self.rerank_model_path}")
+        
+        # Enable multi-GPU inference for reranker if available
+        if self.n_gpus > 1 and torch.cuda.device_count() >= self.n_gpus:
+            logging.info(f"Enabling DataParallel for reranker on {self.n_gpus} GPUs")
+            # Get the underlying PyTorch model from sentence-transformers
+            if hasattr(self.rerank_model, 'model'):
+                self.rerank_model.model = torch.nn.DataParallel(
+                    self.rerank_model.model, 
+                    device_ids=list(range(self.n_gpus))
+                )
+            else:
+                logging.warning("Could not enable DataParallel: model structure not recognized")
+        else:
+            logging.info(f"Using single GPU for reranker (n_gpus={self.n_gpus}, available={torch.cuda.device_count()})")
 
         # Actually perform doc embedding (or retrieves from the cache, if available) and build the FAISS vector store
         logging.info("Starting document embedding (or getting document embeddings from cache) and indexing.")
