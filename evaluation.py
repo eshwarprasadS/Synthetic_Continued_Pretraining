@@ -114,6 +114,7 @@ def eval_quality_qa_with_rag(
     retrieval_top_k: int,
     rerank_model_path: str,
     rerank_top_k: int,
+    rerank_batch_size: int,
     retrieved_chunk_order: str,
     eval_temperature: float,
     n_gpus: int,
