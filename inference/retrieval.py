@@ -12,7 +12,9 @@ try:
     from langchain.embeddings.cache import _create_key_encoder
 except ImportError:
     # For newer LangChain versions
-    from langchain.embeddings.cache import _make_default_key_encoder as _create_key_encoder
+    from langchain.embeddings.cache import _make_default_key_encoder
+    def _create_key_encoder(namespace):
+        return _make_default_key_encoder(namespace, "sha256")
 from langchain.storage import LocalFileStore
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_community.vectorstores import FAISS
