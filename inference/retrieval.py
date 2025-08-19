@@ -466,7 +466,7 @@ class LangChainRetriever:
             cross_encoder_model,
             query,
             documents,
-            _model
+            model
     ):
         """Rerank documents using Qwen cross-encoder model with efficient batching."""
         # Prepare query-document pairs for batch processing
@@ -485,7 +485,7 @@ class LangChainRetriever:
             cross_encoder_model,
             query,
             documents,
-            _model
+            model
     ):
         """Rerank documents using BGE cross-encoder model."""
         # Prepare query-document pairs for the cross-encoder
