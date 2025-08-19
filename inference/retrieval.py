@@ -346,6 +346,10 @@ class LangChainRetriever:
         if self.rerank_model_path == 'Qwen/Qwen3-Reranker-8B':
             logging.info("Setting up Qwen cross-encoder reranker.")
             self.rerank_model = CrossEncoder(self.rerank_model_path)
+            # Ensure padding token is properly set for batch processing
+            if self.rerank_model.tokenizer.pad_token is None:
+                self.rerank_model.tokenizer.pad_token = '<|endoftext|>'
+                self.rerank_model.tokenizer.pad_token_id = 151643
             self.rerank_wrapper_fn = self.rerank_with_qwen_cross_encoder
         else:
             raise NotImplementedError(f"Unknown rerank model path: {self.rerank_model_path}")
