@@ -34,7 +34,7 @@ class EvalConfigs:
     retrieval_top_k: Optional[int] = field(
         default=128,
         metadata={'help': 'Top k chunks to retrieve per query. Used to construct prompts for LM evaluation.'})
-    rerank_model_path: Optional[str] = field(default='rerank-english-v3.0"')
+    rerank_model_path: Optional[str] = field(default='Qwen/Qwen3-Reranker-8B')
     rerank_top_k: Optional[int] = field(
         default=16,
         metadata={'help': 'Top k chunks to rerank per query. Used to construct prompts for LM evaluation.'})

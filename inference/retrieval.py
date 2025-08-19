@@ -2,11 +2,17 @@ import logging
 import os
 from typing import List, Iterable, Optional, Union, cast, Tuple, Dict
 
-import cohere
 import pandas as pd
+from sentence_transformers import CrossEncoder
 from langchain.embeddings.cache import (
-    CacheBackedEmbeddings, Embeddings, ByteStore, EncoderBackedStore, batch_iterate,  # noqa
-    _create_key_encoder, _value_serializer, _value_deserializer)  # noqa
+    CacheBackedEmbeddings, Embeddings, ByteStore, EncoderBackedStore, batch_iterate,
+    _value_serializer, _value_deserializer
+)
+try:
+    from langchain.embeddings.cache import _create_key_encoder
+except ImportError:
+    # For newer LangChain versions
+    from langchain.embeddings.cache import _make_default_key_encoder as _create_key_encoder
 from langchain.storage import LocalFileStore
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_community.vectorstores import FAISS
@@ -14,10 +20,9 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from inference.retry_wrapper import rerank_with_backoff
 from tasks.quality import QuALITY
 from utils import python_utils
-from utils.io_utils import set_openai_key, set_cohere_private_key, jload, jdump
+from utils.io_utils import set_openai_key, jload, jdump
 from utils.prompt_utils import format_name
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -336,11 +341,10 @@ class LangChainRetriever:
         )
 
         # Set up the rerank model
-        if self.rerank_model_path == 'rerank-english-v3.0':
-            logging.info("Setting up Cohere reranker.")
-            set_cohere_private_key()
-            self.rerank_model = cohere.Client()
-            self.rerank_wrapper_fn = self.rerank_with_cohere
+        if self.rerank_model_path == 'Qwen/Qwen3-Reranker-8B':
+            logging.info("Setting up Qwen cross-encoder reranker.")
+            self.rerank_model = CrossEncoder(self.rerank_model_path)
+            self.rerank_wrapper_fn = self.rerank_with_qwen_cross_encoder
         else:
             raise NotImplementedError(f"Unknown rerank model path: {self.rerank_model_path}")
 
@@ -448,28 +452,22 @@ class LangChainRetriever:
         ))
 
     @staticmethod
-    def rerank_with_cohere(
-            client,
+    def rerank_with_qwen_cross_encoder(
+            cross_encoder_model,
             query,
             documents,
             model
     ):
-        """See documentation at https://docs.cohere.com/reference/rerank."""
-        # By leaving top_n unspecified, we default to returning all documents with their reranker scores
-        cohere_output = rerank_with_backoff(
-            client,
-            query=query,
-            documents=documents,
-            model=model,
-            return_documents=True
-        )
-        # The above returns an ordered list of {index, text, relevance score}
-        # We convert this to a list of tuples (text, relevance score)
-        results = []
-
-        for results_item in cohere_output.results:
-            results.append((results_item.document.text, results_item.relevance_score))
-
+        """Rerank documents using Qwen cross-encoder model."""
+        # Prepare query-document pairs for the cross-encoder
+        query_doc_pairs = [[query, doc] for doc in documents]
+        
+        # Get relevance scores from the cross-encoder
+        scores = cross_encoder_model.predict(query_doc_pairs)
+        
+        # Convert to list of tuples (text, relevance score)
+        results = [(doc, float(score)) for doc, score in zip(documents, scores)]
+        
         return results
 
     def rerank_chunks_for_all_queries(

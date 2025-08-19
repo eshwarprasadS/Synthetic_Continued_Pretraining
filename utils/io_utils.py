@@ -7,9 +7,6 @@ def set_openai_key():
     with open('data/dataset/openai.key', 'r') as f:
         os.environ["OPENAI_API_KEY"] = f.read().strip()
 
-def set_cohere_private_key():
-    with open('data/dataset/cohere.key', 'r') as f:
-        os.environ["COHERE_API_KEY"] = f.read().strip()
 
 def _make_w_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):
