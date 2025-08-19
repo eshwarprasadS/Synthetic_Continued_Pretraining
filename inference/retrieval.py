@@ -711,8 +711,34 @@ class LangChainRetriever:
             logging.info(f"Overwrote rerank cache at {rerank_cache_path}.")
 
         logging.info(f"Reranking completed. Cached results to {rerank_cache_path}.")
+        
+        # Clean up GPU memory after reranking
+        self.cleanup_reranker_models()
 
         return all_reranking_results
+
+    def cleanup_reranker_models(self):
+        """Clean up reranker models and free GPU memory."""
+        logging.info("Cleaning up reranker models to free GPU memory...")
+        
+        # Delete single GPU model
+        if hasattr(self, 'rerank_model'):
+            del self.rerank_model
+        
+        # Delete multi-GPU models
+        if hasattr(self, 'rerank_models'):
+            for model in self.rerank_models:
+                del model
+            del self.rerank_models
+        
+        # Force garbage collection and clear CUDA cache
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        logging.info("Reranker model cleanup completed.")
 
 
 """Few-shot prompt formatting."""
