@@ -415,6 +415,7 @@ class LangChainRetriever:
             self,
             top_k: int,
             rerank_model_path: str,
+            rerank_batch_size: int = 128,
     ):
         retrieval_cache_path = self.get_retrieval_cache_path()
 
@@ -458,7 +459,8 @@ class LangChainRetriever:
             rerank_results=self.rerank_chunks_for_all_queries(
                 chunks_for_all_queries=chunks_for_all_queries,
                 rerank_model_path=rerank_model_path,
-                retrieval_max_k=top_k
+                retrieval_max_k=top_k,
+                rerank_batch_size=rerank_batch_size
         ))
 
     @staticmethod
@@ -466,17 +468,23 @@ class LangChainRetriever:
             cross_encoder_model,
             query,
             documents,
-            model
+            model,
+            batch_size=128
     ):
-        """Rerank documents using Qwen cross-encoder model with efficient batching."""
-        # Prepare query-document pairs for batch processing
-        query_doc_pairs = [[query, doc] for doc in documents]
+        """Rerank documents using Qwen cross-encoder model with configurable batch size."""
+        all_scores = []
         
-        # Get relevance scores from the cross-encoder (batch processing)
-        scores = cross_encoder_model.predict(query_doc_pairs)
+        # Process documents in batches for better GPU utilization
+        for i in range(0, len(documents), batch_size):
+            batch_docs = documents[i:i + batch_size]
+            query_doc_pairs = [[query, doc] for doc in batch_docs]
+            
+            # Get relevance scores for this batch
+            batch_scores = cross_encoder_model.predict(query_doc_pairs)
+            all_scores.extend(batch_scores)
         
         # Convert to list of tuples (text, relevance score)
-        results = [(doc, float(score)) for doc, score in zip(documents, scores)]
+        results = [(doc, float(score)) for doc, score in zip(documents, all_scores)]
         
         return results
     
@@ -485,17 +493,23 @@ class LangChainRetriever:
             cross_encoder_model,
             query,
             documents,
-            model
+            model,
+            batch_size=128
     ):
-        """Rerank documents using BGE cross-encoder model."""
-        # Prepare query-document pairs for the cross-encoder
-        query_doc_pairs = [[query, doc] for doc in documents]
+        """Rerank documents using BGE cross-encoder model with configurable batch size."""
+        all_scores = []
         
-        # Get relevance scores from the cross-encoder (BGE handles batching well)
-        scores = cross_encoder_model.predict(query_doc_pairs)
+        # Process documents in batches for better GPU utilization
+        for i in range(0, len(documents), batch_size):
+            batch_docs = documents[i:i + batch_size]
+            query_doc_pairs = [[query, doc] for doc in batch_docs]
+            
+            # Get relevance scores for this batch
+            batch_scores = cross_encoder_model.predict(query_doc_pairs)
+            all_scores.extend(batch_scores)
         
         # Convert to list of tuples (text, relevance score)
-        results = [(doc, float(score)) for doc, score in zip(documents, scores)]
+        results = [(doc, float(score)) for doc, score in zip(documents, all_scores)]
         
         return results
 
@@ -526,16 +540,22 @@ class LangChainRetriever:
 
         query_strs = self.get_all_task_questions_for_query_embedding()
         all_reranking_results = []  # type: List[List[Tuple[str, float]]]
-        for query_str, retrieved_chunks in python_utils.zip_(query_strs, chunks_for_all_queries):
+        
+        logging.info(f"Processing {len(query_strs)} queries with rerank batch size: {rerank_batch_size}")
+        
+        for i, (query_str, retrieved_chunks) in enumerate(python_utils.zip_(query_strs, chunks_for_all_queries)):
             if query_str in rerank_cached_results.keys():
                 all_reranking_results.append(rerank_cached_results[query_str])
             else:
-                retrieved_chunk_strs = [retrieved_chunks[i][0] for i in range(len(retrieved_chunks))]
+                retrieved_chunk_strs = [retrieved_chunks[j][0] for j in range(len(retrieved_chunks))]
+                logging.info(f"Reranking query {i+1}/{len(query_strs)}: {len(retrieved_chunk_strs)} documents")
+                
                 rerank_results = self.rerank_wrapper_fn(
                     self.rerank_model,
                     query=query_str,
                     documents=retrieved_chunk_strs,
-                    model=rerank_model_path
+                    model=rerank_model_path,
+                    batch_size=rerank_batch_size
                 )
                 all_reranking_results.append(rerank_results)
                 rerank_cached_results[query_str] = rerank_results

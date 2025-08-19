@@ -39,6 +39,9 @@ class EvalConfigs:
     rerank_top_k: Optional[int] = field(
         default=16,
         metadata={'help': 'Top k chunks to rerank per query. Used to construct prompts for LM evaluation.'})
+    rerank_batch_size: Optional[int] = field(
+        default=128,
+        metadata={'help': 'Batch size for processing documents during reranking. Larger values use more GPU memory but are faster.'})
     retrieved_chunk_order: Optional[str] = field(default='best_first')
 
     def __post_init__(self):
@@ -159,6 +162,7 @@ def eval_quality_qa_with_rag(
     retrieval_and_maybe_rerank_results = retriever.retrieve_chunks_for_all_queries(
         top_k=retrieval_max_k,
         rerank_model_path=rerank_model_path,
+        rerank_batch_size=rerank_batch_size,
     )
 
     logging.info(f"Retrieval top_k: {retrieval_top_k}, Rerank top_k: {rerank_top_k}")
